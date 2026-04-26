@@ -1,18 +1,46 @@
 <!doctype html>
 <html lang="en">
-	<head>
-  <script src="https://cdn.zipy.ai/sdk/v1.0/zipy.min.umd.js" crossorigin="anonymous"></script>
-  <script>
-    window.zipy && window.zipy.init('35b24e6d');
-  </script>
-		<meta charset="UTF-8" />
-		<link rel="icon" type="image/svg+xml" href="/vite.svg" />
-		<meta name="generator" content="Pro Mount USA – TV Installation Experts" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Pro Mount USA – TV Installation Experts</title>
-	</head>
-	<body>
-		<div id="root"></div>
-		<script type="module" src="/src/main.jsx"></script>
-	</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content="Pro Mount USA – TV Installation Experts" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <title>Pro Mount USA – TV Installation Experts</title>
+
+    <!-- Zipy -->
+    <script src="https://cdn.zipy.ai/sdk/v1.0/zipy.min.umd.js" crossorigin="anonymous"></script>
+    <script>
+      window.zipy && window.zipy.init('35b24e6d');
+    </script>
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-39VFPJZ2V8"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-39VFPJZ2V8');
+    </script>
+
+    <!-- Meta Pixel -->
+    <script>
+      !function(f,b,e,v,n,t,s)
+      {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}(window, document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '1193533389400205');
+      fbq('track', 'PageView');
+    </script>
+  </head>
+  <body>
+    <noscript><img height="1" width="1" style="display:none"
+      src="https://www.facebook.com/tr?id=1193533389400205&ev=PageView&noscript=1"
+    /></noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
