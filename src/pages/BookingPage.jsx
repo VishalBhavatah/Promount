@@ -19,7 +19,7 @@ import PriceBreakdown from '@/components/booking/PriceBreakdown';
 import SuccessState from '@/components/booking/SuccessState';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
-import { fetchCouponCodeFromPromoSource } from '@/lib/couponService';
+import { fetchCouponCodeFromPromoSource, isSupportedCouponCode } from '@/lib/couponService';
 import { getBookCodeFromSearch, getEffectiveBookCode, getStoredBookCode, withBookParam } from '@/lib/bookCode';
 
 const BookingPage = () => {
@@ -111,6 +111,9 @@ const BookingPage = () => {
     setPromoApplyLoading(true);
     try {
       const coupon = await fetchCouponCodeFromPromoSource(value);
+      if (!coupon || !isSupportedCouponCode(coupon)) {
+        throw new Error('Coupon not valid');
+      }
       setPromoSourceCode(value);
       setResolvedPromoCode(coupon);
       toast({

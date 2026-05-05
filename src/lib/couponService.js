@@ -32,6 +32,18 @@ const COUPON_LOOKUP_ENDPOINT =
   'https://promountbackend-914264443.development.catalystserverless.com/server/pro_mount_backend_function/getCouponCode';
 
 const normalizeCode = (value) => (value || '').toString().trim().toUpperCase();
+const SUPPORTED_COUPON_CODES = new Set([
+  'APTSAVE10PER',
+  'APTSAVE30',
+  'APTSAVE35',
+  'APTSAVE40',
+  'APTSAVE-30',
+  'APTSAVE=30',
+  'APTSAVE-35',
+  'APTSAVE=35',
+  'APTSAVE-40',
+  'APTSAVE=40'
+]);
 
 const extractCouponCode = (payload) => {
   if (!payload) return '';
@@ -89,3 +101,6 @@ export const fetchCouponCodeFromPromoSource = async (promoSourceCode = '') => {
 
   return extractCouponCode(payload);
 };
+
+export const isSupportedCouponCode = (couponCode = '') =>
+  SUPPORTED_COUPON_CODES.has(normalizeCode(couponCode));

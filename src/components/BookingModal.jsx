@@ -11,7 +11,7 @@ import Step2 from '@/components/booking/Step2';
 import Step3 from '@/components/booking/Step3';
 import PriceBreakdown from '@/components/booking/PriceBreakdown';
 import SuccessState from '@/components/booking/SuccessState';
-import { fetchCouponCodeFromPromoSource } from '@/lib/couponService';
+import { fetchCouponCodeFromPromoSource, isSupportedCouponCode } from '@/lib/couponService';
 import { getEffectiveBookCode } from '@/lib/bookCode';
 import { cn } from '@/lib/utils';
 
@@ -97,6 +97,9 @@ const BookingModal = ({ isOpen, onClose }) => {
     setPromoApplyLoading(true);
     try {
       const coupon = await fetchCouponCodeFromPromoSource(value);
+      if (!coupon || !isSupportedCouponCode(coupon)) {
+        throw new Error('Coupon not valid');
+      }
       setPromoSourceCode(value);
       setResolvedPromoCode(coupon);
       toast({
