@@ -39,6 +39,9 @@ const BookingPage = () => {
   const [stripeCheckoutUrl, setStripeCheckoutUrl] = useState(null);
   const [showMobileSummary, setShowMobileSummary] = useState(false);
   const [resolvedPromoCode, setResolvedPromoCode] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [promoApplyLoading, setPromoApplyLoading] = useState(false);
+  const [promoSourceCode, setPromoSourceCode] = useState(bookPromoCode);
 
   const topRef = useRef(null);
 
@@ -68,16 +71,22 @@ const BookingPage = () => {
   }, [isSuccess]);
 
   useEffect(() => {
+    if (!promoSourceCode && bookPromoCode) {
+      setPromoSourceCode(bookPromoCode);
+    }
+  }, [bookPromoCode, promoSourceCode]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadPromoCode = async () => {
-      if (!bookPromoCode) {
+      if (!promoSourceCode) {
         setResolvedPromoCode('');
         return;
       }
 
       try {
-        const promo = await fetchCouponCodeFromPromoSource(bookPromoCode);
+        const promo = await fetchCouponCodeFromPromoSource(promoSourceCode);
         if (isMounted) {
           setResolvedPromoCode(promo);
         }
@@ -94,7 +103,31 @@ const BookingPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [bookPromoCode]);
+  }, [promoSourceCode]);
+
+  const handleApplyPromo = async () => {
+    const value = promoInput.trim();
+    if (!value) return;
+    setPromoApplyLoading(true);
+    try {
+      const coupon = await fetchCouponCodeFromPromoSource(value);
+      setPromoSourceCode(value);
+      setResolvedPromoCode(coupon);
+      toast({
+        title: 'Promo applied',
+        description: `Coupon ${coupon} has been applied.`
+      });
+    } catch (error) {
+      setResolvedPromoCode('');
+      toast({
+        variant: 'destructive',
+        title: 'Invalid promo code',
+        description: error.message || 'Unable to apply promo code.'
+      });
+    } finally {
+      setPromoApplyLoading(false);
+    }
+  };
 
   const updateFormData = (newData) => {
     setFormData(prev => ({ ...prev, ...newData }));
@@ -159,7 +192,7 @@ const BookingPage = () => {
           name: (formData.contact.fullName || '').trim(),
           phone: formatPhone(formData.contact.phone)
         },
-        ...(bookPromoCode ? { book: bookPromoCode } : {}),
+        ...(promoSourceCode ? { book: promoSourceCode } : {}),
         ...(resolvedPromoCode ? { promoCode: resolvedPromoCode } : {}),
         confirmationNumber
       };
@@ -304,7 +337,7 @@ const BookingPage = () => {
                         </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 pb-32">
-                        <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={bookPromoCode} />
+                        <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
                     </div>
                     <div className="p-4 border-t border-gray-200 bg-gray-50">
                       <button
@@ -367,7 +400,17 @@ const BookingPage = () => {
                     </h2>
                   </div>
                   <div className="p-6 md:p-8">
-                    <Step3 formData={formData} updateFormData={updateFormData} errors={errors} setErrors={setErrors} />
+                    <Step3
+                      formData={formData}
+                      updateFormData={updateFormData}
+                      errors={errors}
+                      setErrors={setErrors}
+                      promoInput={promoInput}
+                      setPromoInput={setPromoInput}
+                      onApplyPromo={handleApplyPromo}
+                      promoApplyLoading={promoApplyLoading}
+                      appliedCouponCode={resolvedPromoCode}
+                    />
                   </div>
                 </div>
 
@@ -394,7 +437,7 @@ const BookingPage = () => {
 
               {/* Desktop Sticky Summary */}
               <div className="hidden lg:block w-[400px] shrink-0 sticky top-28 self-start transition-all duration-300">
-                <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={bookPromoCode} />
+                <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
               </div>
 
             </div>

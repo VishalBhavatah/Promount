@@ -33,6 +33,9 @@ const BookingModal = ({ isOpen, onClose }) => {
   const [stripeCheckoutUrl, setStripeCheckoutUrl] = useState(null);
   const [isSaturdayBooking, setIsSaturdayBooking] = useState(false);
   const [resolvedPromoCode, setResolvedPromoCode] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [promoApplyLoading, setPromoApplyLoading] = useState(false);
+  const [promoSourceCode, setPromoSourceCode] = useState(bookPromoCode);
   
   const scrollContainerRef = useRef(null);
 
@@ -54,16 +57,22 @@ const BookingModal = ({ isOpen, onClose }) => {
   }, [currentStep]);
 
   useEffect(() => {
+    if (!promoSourceCode && bookPromoCode) {
+      setPromoSourceCode(bookPromoCode);
+    }
+  }, [bookPromoCode, promoSourceCode]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadPromoCode = async () => {
-      if (!isOpen || !bookPromoCode) {
+      if (!isOpen || !promoSourceCode) {
         setResolvedPromoCode('');
         return;
       }
 
       try {
-        const promo = await fetchCouponCodeFromPromoSource(bookPromoCode);
+        const promo = await fetchCouponCodeFromPromoSource(promoSourceCode);
         if (isMounted) {
           setResolvedPromoCode(promo);
         }
@@ -80,7 +89,31 @@ const BookingModal = ({ isOpen, onClose }) => {
     return () => {
       isMounted = false;
     };
-  }, [isOpen, bookPromoCode]);
+  }, [isOpen, promoSourceCode]);
+
+  const handleApplyPromo = async () => {
+    const value = promoInput.trim();
+    if (!value) return;
+    setPromoApplyLoading(true);
+    try {
+      const coupon = await fetchCouponCodeFromPromoSource(value);
+      setPromoSourceCode(value);
+      setResolvedPromoCode(coupon);
+      toast({
+        title: 'Promo applied',
+        description: `Coupon ${coupon} has been applied.`
+      });
+    } catch (error) {
+      setResolvedPromoCode('');
+      toast({
+        variant: 'destructive',
+        title: 'Invalid promo code',
+        description: error.message || 'Unable to apply promo code.'
+      });
+    } finally {
+      setPromoApplyLoading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -228,7 +261,7 @@ const BookingModal = ({ isOpen, onClose }) => {
           name: (formData.contact.fullName || '').trim(),
           phone: formatPhone(formData.contact.phone)
         },
-        ...(bookPromoCode ? { book: bookPromoCode } : {}),
+        ...(promoSourceCode ? { book: promoSourceCode } : {}),
         ...(resolvedPromoCode ? { promoCode: resolvedPromoCode } : {}),
         confirmationNumber,
         stripeCheckoutUrl
@@ -375,7 +408,7 @@ const BookingModal = ({ isOpen, onClose }) => {
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 pb-24">
-                  <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={bookPromoCode}/>
+                  <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode}/>
                 </div>
               </motion.div>
             )}
@@ -410,14 +443,24 @@ const BookingModal = ({ isOpen, onClose }) => {
                     <Step2 formData={formData} updateFormData={updateFormData} errors={errors} />
                   )}
                   {currentStep === 3 && (
-                    <Step3 formData={formData} updateFormData={updateFormData} errors={errors} setErrors={setErrors} />
+                    <Step3
+                      formData={formData}
+                      updateFormData={updateFormData}
+                      errors={errors}
+                      setErrors={setErrors}
+                      promoInput={promoInput}
+                      setPromoInput={setPromoInput}
+                      onApplyPromo={handleApplyPromo}
+                      promoApplyLoading={promoApplyLoading}
+                      appliedCouponCode={resolvedPromoCode}
+                    />
                   )}
                 </div>
               </div>
 
               <div className="hidden md:block w-[320px] bg-gray-50 border-l border-gray-200 overflow-y-auto">
                 <div className="p-6 pb-32">
-                  <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={bookPromoCode} />
+                  <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
                 </div>
               </div>
             </>

@@ -33,7 +33,17 @@ const TIME_SLOTS = [
   { value: 'flexible',  label: 'Flexible',  sub: 'Any time works' },
 ];
 
-const Step3 = ({ formData, updateFormData, errors, setErrors }) => {
+const Step3 = ({
+  formData,
+  updateFormData,
+  errors,
+  setErrors,
+  promoInput = '',
+  setPromoInput = () => {},
+  onApplyPromo = () => {},
+  promoApplyLoading = false,
+  appliedCouponCode = ''
+}) => {
   const days = getNext30Days();
 
   useEffect(() => {
@@ -277,6 +287,35 @@ const Step3 = ({ formData, updateFormData, errors, setErrors }) => {
           onChange={(e) => updateFormData({ instructions: e.target.value })}
           className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white focus:outline-none focus:border-orange-500 resize-none text-gray-900"
         />
+      </section>
+
+      {/* Manual Promo Code */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">
+          Promo Code
+        </h3>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            placeholder="Enter promo code"
+            value={promoInput}
+            onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+            className="flex-1 px-4 py-3 rounded-lg border border-gray-300 bg-white focus:outline-none focus:border-orange-500 text-gray-900"
+          />
+          <button
+            type="button"
+            onClick={onApplyPromo}
+            disabled={promoApplyLoading || !promoInput.trim()}
+            className="px-5 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {promoApplyLoading ? 'Applying...' : 'Apply'}
+          </button>
+        </div>
+        {appliedCouponCode ? (
+          <p className="text-green-600 text-xs mt-2">Coupon applied: {appliedCouponCode}</p>
+        ) : (
+          <p className="text-gray-500 text-xs mt-2">Enter your promo code if you have one.</p>
+        )}
       </section>
 
       {/* Terms — pre-checked */}
