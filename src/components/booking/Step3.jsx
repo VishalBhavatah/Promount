@@ -41,6 +41,7 @@ const Step3 = ({
   promoInput = '',
   setPromoInput = () => {},
   onApplyPromo = () => {},
+  onClearPromo = () => {},
   promoApplyLoading = false,
   appliedCouponCode = ''
 }) => {
@@ -302,14 +303,24 @@ const Step3 = ({
             onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
             className="flex-1 px-4 py-3 rounded-lg border border-gray-300 bg-white focus:outline-none focus:border-orange-500 text-gray-900"
           />
-          <button
-            type="button"
-            onClick={onApplyPromo}
-            disabled={promoApplyLoading || !promoInput.trim()}
-            className="px-5 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {promoApplyLoading ? 'Applying...' : 'Apply'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onApplyPromo}
+              disabled={promoApplyLoading || !promoInput.trim()}
+              className="px-5 py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {promoApplyLoading ? 'Applying...' : 'Apply'}
+            </button>
+            <button
+              type="button"
+              onClick={onClearPromo}
+              disabled={promoApplyLoading || (!promoInput.trim() && !appliedCouponCode)}
+              className="px-4 py-3 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Clear
+            </button>
+          </div>
         </div>
         {appliedCouponCode ? (
           <p className="text-green-600 text-xs mt-2">Coupon applied: {appliedCouponCode}</p>

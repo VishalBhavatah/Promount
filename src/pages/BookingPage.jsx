@@ -2,15 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Loader2, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Check, Loader2, ChevronUp, X, Pencil } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { 
-  INITIAL_FORM_DATA, 
-  validateRequired, 
-  validateEmail, 
-  validatePhone, 
+import { getBookCodeFromSearch, getEffectiveBookCode, getStoredBookCode, withBookParam } from '@/lib/bookCode';
+import { supabase } from '@/lib/supabaseClient';
+
+import {
+  INITIAL_FORM_DATA,
+  validateRequired,
+  calculatePrice,
+  validateEmail,
+  validatePhone,
   validateZIP,
-  formatPhone 
+  formatPhone,
+  PRICING
 } from '@/lib/bookingUtils';
 import Step1 from '@/components/booking/Step1';
 import Step2 from '@/components/booking/Step2';
@@ -20,19 +25,143 @@ import SuccessState from '@/components/booking/SuccessState';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { fetchCouponCodeFromPromoSource, isSupportedCouponCode } from '@/lib/couponService';
-import { getBookCodeFromSearch, getEffectiveBookCode, getStoredBookCode, withBookParam } from '@/lib/bookCode';
+import { cn } from '@/lib/utils';
+
+// Progress Indicator
+const STEPS = [
+  { label: 'Your TV' },
+  { label: 'Installation' },
+  { label: 'Schedule' },
+  { label: 'Contact' },
+];
+
+const ProgressIndicator = ({ formData }) => {
+  const completedSteps = [
+    !!(formData.tvSize && formData.mountType),
+    !!(formData.wallType && formData.cableManagement),
+    !!(formData.date && formData.timeSlot),
+    // FIX 1: Added email validation to Contact step completion check
+    !!(
+      formData.contact?.phone && validatePhone(formData.contact.phone) &&
+      formData.contact?.email && validateEmail(formData.contact.email)
+    ),
+  ];
+  // FIX 2: marks the first incomplete step as active
+  const currentStep = completedSteps.indexOf(false);
+  return (
+    <div className="flex items-center w-full px-2">
+      {STEPS.map((step, i) => {
+        const done = completedSteps[i];
+        const active = i === currentStep;
+        return (
+          <React.Fragment key={step.label}>
+            <div className="flex flex-col items-center">
+              <div className={cn(
+                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all",
+                done ? "bg-green-500 border-green-500 text-white"
+                  : active ? "bg-white border-orange-500 text-orange-500"
+                    : "bg-white border-gray-300 text-gray-400"
+              )}>
+                {done ? <Check className="w-3.5 h-3.5" /> : <span>{i + 1}</span>}
+              </div>
+              <span className={cn(
+                "text-[10px] font-semibold mt-1 whitespace-nowrap",
+                done ? "text-green-600" : active ? "text-orange-500" : "text-gray-400"
+              )}>
+                {step.label}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div className={cn(
+                "flex-1 h-0.5 mb-4 mx-1 transition-all",
+                completedSteps[i] ? "bg-green-400" : "bg-gray-200"
+              )} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
+
+// Recap card shown at top of Step 3
+const RecapCard = ({ formData, onEditInstallation, onEditSchedule }) => {
+  const tvLabel = formData.tvSize ? PRICING.TV_SIZES[formData.tvSize]?.label : null;
+  const mountLabel = formData.mountType ? PRICING.MOUNT_TYPES[formData.mountType]?.label : null;
+  const wallLabel = formData.wallType ? PRICING.WALL_TYPES[formData.wallType]?.label : null;
+  const cableLabel = formData.cableManagement ? PRICING.CABLE_MANAGEMENT[formData.cableManagement]?.label : null;
+  const extrasLabel = formData.extras?.length > 0
+    ? formData.extras.map(k => PRICING.EXTRAS[k]?.label).filter(Boolean).join(' · ')
+    : null;
+  const techLabel = formData.techCount === 'two' ? '2nd Technician' : null;
+
+  const formatDate = (iso) => {
+    if (!iso) return null;
+    const [y, m, d] = iso.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
+  const timeLabels = {
+    morning: '8 AM – 12 PM',
+    afternoon: '12 PM – 5 PM',
+    evening: '5 PM – 8 PM',
+    flexible: 'Flexible',
+  };
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6 space-y-3">
+      <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Your Selections</h4>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-gray-500 font-medium">Installation</p>
+          <p className="text-sm text-gray-900 font-semibold">{[tvLabel, mountLabel].filter(Boolean).join(' · ') || '—'}</p>
+        </div>
+        <button onClick={onEditInstallation} className="flex items-center gap-1 text-orange-500 text-xs font-semibold hover:text-orange-600"><Pencil className="w-3 h-3" /> Edit</button>
+      </div>
+      {(wallLabel || cableLabel) && (
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-gray-500 font-medium">Wall & Cables</p>
+            <p className="text-sm text-gray-900 font-semibold">{[wallLabel, cableLabel].filter(Boolean).join(' · ')}</p>
+          </div>
+          <button onClick={onEditInstallation} className="flex items-center gap-1 text-orange-500 text-xs font-semibold hover:text-orange-600"><Pencil className="w-3 h-3" /> Edit</button>
+        </div>
+      )}
+      {(extrasLabel || techLabel) && (
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-gray-500 font-medium">Other Services</p>
+            <p className="text-sm text-gray-900 font-semibold">{[techLabel, extrasLabel].filter(Boolean).join(' · ')}</p>
+          </div>
+          <button onClick={onEditInstallation} className="flex items-center gap-1 text-orange-500 text-xs font-semibold hover:text-orange-600"><Pencil className="w-3 h-3" /> Edit</button>
+        </div>
+      )}
+      {(formData.date || formData.timeSlot) && (
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-gray-500 font-medium">Date & Time</p>
+            <p className="text-sm text-gray-900 font-semibold">{[formatDate(formData.date), timeLabels[formData.timeSlot]].filter(Boolean).join(' · ')}</p>
+          </div>
+          <button onClick={onEditSchedule} className="flex items-center gap-1 text-orange-500 text-xs font-semibold hover:text-orange-600"><Pencil className="w-3 h-3" /> Edit</button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const BookingPage = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const bookPromoCode = getEffectiveBookCode(location.search);
-  
+  const bookPromoCode = getEffectiveBookCode(window.location.search);
+
   const [formData, setFormData] = useState({
     ...INITIAL_FORM_DATA,
     terms: false,
     smsConsent: false
   });
+  const [tvPath, setTvPath] = useState(null);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -42,15 +171,92 @@ const BookingPage = () => {
   const [promoInput, setPromoInput] = useState('');
   const [promoApplyLoading, setPromoApplyLoading] = useState(false);
   const [promoSourceCode, setPromoSourceCode] = useState(bookPromoCode);
+  const [promoClearedManually, setPromoClearedManually] = useState(false);
 
-  const topRef = useRef(null);
+  // ── Lead capture ────────────────────────────────────────────────────────────
+  const sessionId       = useRef(crypto.randomUUID());
+  const saveTimer       = useRef(null);
+  const bookingComplete = useRef(false);
 
+  const savePartialLead = async (data, converted = false) => {
+    try {
+      await supabase.from('partial_leads').upsert({
+        session_id:       sessionId.current,
+        tv_size:          data.tvSize               || null,
+        mount_type:       data.mountType            || null,
+        wall_type:        data.wallType             || null,
+        cable_management: data.cableManagement      || null,
+        extras:           data.extras?.length ? data.extras : null,
+        tech_count:       data.techCount            || null,
+        date:             data.date                 || null,
+        time_slot:        data.timeSlot             || null,
+        phone:            data.contact?.phone       || null,
+        email:            data.contact?.email       || null,
+        full_name:        data.contact?.fullName    || null,
+        address:          (data.address?.street || data.address?.city) ? data.address : null,
+        instructions:     data.instructions         || null,
+        promo_code:       data.promoCode            || null,
+        converted,
+      }, { onConflict: 'session_id' });
+    } catch (err) {
+      console.warn('[LeadCapture] Save failed:', err);
+    }
+  };
+
+  // Debounced save — fires 2s after last formData change
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
+    if (bookingComplete.current) return;
+    const hasData = formData.tvSize || formData.contact?.phone || formData.contact?.email;
+    if (!hasData) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => savePartialLead(formData), 2000);
+    return () => clearTimeout(saveTimer.current);
+  }, [formData]);
 
-  // If user navigates to /booking without ?book=..., keep the promo alive by
-  // restoring it into the URL from localStorage (shareable and consistent).
+  // Flush immediately on tab close / navigation away
+  useEffect(() => {
+    const flush = () => {
+      if (bookingComplete.current) return;
+      const hasData = formData.tvSize || formData.contact?.phone || formData.contact?.email;
+      if (!hasData) return;
+      const payload = JSON.stringify({
+        session_id:       sessionId.current,
+        tv_size:          formData.tvSize               || null,
+        mount_type:       formData.mountType            || null,
+        wall_type:        formData.wallType             || null,
+        cable_management: formData.cableManagement      || null,
+        extras:           formData.extras?.length ? formData.extras : null,
+        tech_count:       formData.techCount            || null,
+        date:             formData.date                 || null,
+        time_slot:        formData.timeSlot             || null,
+        phone:            formData.contact?.phone       || null,
+        email:            formData.contact?.email       || null,
+        full_name:        formData.contact?.fullName    || null,
+        address:          (formData.address?.street || formData.address?.city) ? formData.address : null,
+        instructions:     formData.instructions         || null,
+        promo_code:       formData.promoCode            || null,
+        converted:        false,
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/partial_leads`,
+          new Blob([payload], { type: 'application/json' })
+        );
+      } else {
+        savePartialLead(formData);
+      }
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => window.removeEventListener('beforeunload', flush);
+  }, [formData]);
+  // ── End lead capture ────────────────────────────────────────────────────────
+
+  const topRef  = useRef(null);
+  const step2Ref = useRef(null);
+  const step3Ref = useRef(null);
+
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
   useEffect(() => {
     const hasBookInUrl = Boolean(getBookCodeFromSearch(location.search));
     const stored = getStoredBookCode();
@@ -64,45 +270,31 @@ const BookingPage = () => {
 
   useEffect(() => {
     if (topRef.current && isSuccess) {
-      const yOffset = -100;
-      const y = topRef.current.getBoundingClientRect().top + window.scrollY + yOffset;
+      const y = topRef.current.getBoundingClientRect().top + window.scrollY - 100;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
   }, [isSuccess]);
 
   useEffect(() => {
-    if (!promoSourceCode && bookPromoCode) {
+    if (!promoClearedManually && !promoSourceCode && bookPromoCode) {
       setPromoSourceCode(bookPromoCode);
     }
-  }, [bookPromoCode, promoSourceCode]);
+  }, [bookPromoCode, promoSourceCode, promoClearedManually]);
 
   useEffect(() => {
     let isMounted = true;
-
     const loadPromoCode = async () => {
-      if (!promoSourceCode) {
-        setResolvedPromoCode('');
-        return;
-      }
-
+      if (!promoSourceCode) { setResolvedPromoCode(''); return; }
       try {
         const promo = await fetchCouponCodeFromPromoSource(promoSourceCode);
-        if (isMounted) {
-          setResolvedPromoCode(promo);
-        }
+        if (isMounted) setResolvedPromoCode(promo);
       } catch (error) {
-        if (isMounted) {
-          setResolvedPromoCode('');
-        }
+        if (isMounted) setResolvedPromoCode('');
         console.warn('[BookingPage] Promo lookup on load failed:', error);
       }
     };
-
     loadPromoCode();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [promoSourceCode]);
 
   const handleApplyPromo = async () => {
@@ -111,25 +303,25 @@ const BookingPage = () => {
     setPromoApplyLoading(true);
     try {
       const coupon = await fetchCouponCodeFromPromoSource(value);
-      if (!coupon || !isSupportedCouponCode(coupon)) {
-        throw new Error('Coupon not valid');
-      }
+      if (!coupon || !isSupportedCouponCode(coupon)) throw new Error('Coupon not valid');
+      setPromoClearedManually(false);
       setPromoSourceCode(value);
       setResolvedPromoCode(coupon);
-      toast({
-        title: 'Promo applied',
-        description: `Coupon ${coupon} has been applied.`
-      });
+      toast({ title: 'Promo applied', description: `Coupon ${coupon} has been applied.` });
     } catch (error) {
       setResolvedPromoCode('');
-      toast({
-        variant: 'destructive',
-        title: 'Invalid promo code',
-        description: error.message || 'Unable to apply promo code.'
-      });
+      toast({ variant: 'destructive', title: 'Invalid promo code', description: error.message || 'Unable to apply promo code.' });
     } finally {
       setPromoApplyLoading(false);
     }
+  };
+
+  const handleClearPromo = () => {
+    setPromoClearedManually(true);
+    setPromoInput('');
+    setPromoSourceCode('');
+    setResolvedPromoCode('');
+    toast({ title: 'Coupon cleared', description: 'Promo code has been removed from this booking.' });
   };
 
   const updateFormData = (newData) => {
@@ -139,136 +331,108 @@ const BookingPage = () => {
     setErrors(newErrors);
   };
 
+  const handleSelectPath = (path) => {
+    setTvPath(path);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToRef = (ref) => {
+    if (ref.current) {
+      const y = ref.current.getBoundingClientRect().top + window.scrollY - 100;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    }
+  };
+
   const isFormValid = Boolean(
+    // Step 1
+    formData.tvSize &&
+    formData.mountType &&
+    // Step 2
+    formData.wallType &&
+    formData.cableManagement &&
+    // Step 3
     formData.date &&
     formData.timeSlot &&
     formData.contact?.phone &&
     validatePhone(formData.contact.phone) &&
+    formData.contact?.email &&
+    validateEmail(formData.contact.email) &&
     formData.terms
   );
 
   const validateAll = () => {
     const newErrors = {};
-    let isValid = true;
-
     if (!validateRequired(formData.date)) newErrors.date = 'Date is required';
     if (!validateRequired(formData.timeSlot)) newErrors.timeSlot = 'Time slot is required';
-    if (!validateRequired(formData.contact.phone) || !validatePhone(formData.contact.phone)) newErrors['contact.phone'] = 'Valid 10-digit phone required';
+    if (!validateRequired(formData.contact.phone) || !validatePhone(formData.contact.phone))
+      newErrors['contact.phone'] = 'Valid 10-digit phone required';
+    // FIX: Email is now always required
+    if (!validateRequired(formData.contact.email) || !validateEmail(formData.contact.email))
+      newErrors['contact.email'] = 'Valid email required';
     if (!formData.terms) newErrors.terms = 'You must agree to the terms';
-    
-    if (formData.contact.email && !validateEmail(formData.contact.email)) newErrors['contact.email'] = 'Valid email required';
-    if (formData.address.zip && !validateZIP(formData.address.zip)) newErrors['address.zip'] = 'Valid 5-digit ZIP required';
-
+    if (formData.address.zip && !validateZIP(formData.address.zip))
+      newErrors['address.zip'] = 'Valid 5-digit ZIP required';
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      isValid = false;
-      toast({
-        variant: "destructive",
-        title: "Please fix the errors",
-        description: "Some required fields are missing or invalid."
-      });
-      // Scroll up to show errors
+      toast({ variant: "destructive", title: "Please fix the errors", description: "Some required fields are missing or invalid." });
       if (topRef.current) {
-         const yOffset = -100;
-         const y = topRef.current.getBoundingClientRect().top + window.scrollY + yOffset;
-         window.scrollTo({ top: y, behavior: 'smooth' });
+        const y = topRef.current.getBoundingClientRect().top + window.scrollY - 100;
+        window.scrollTo({ top: y, behavior: 'smooth' });
       }
+      return false;
     }
-
-    return isValid;
+    return true;
   };
 
   const handleSubmit = async () => {
     if (!validateAll()) return;
-
     setIsSubmitting(true);
-
     try {
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const randomNum = Math.floor(Math.random() * 900000) + 100000;
       const confirmationNumber = `PM-${dateStr}-${randomNum}`;
-
-      const payload = {
+      const payloadBase = {
         ...formData,
-        contact: {
-          ...formData.contact,
-          name: (formData.contact.fullName || '').trim(),
-          phone: formatPhone(formData.contact.phone)
-        },
-        ...(promoSourceCode ? { book: promoSourceCode } : {}),
-        ...(resolvedPromoCode ? { promoCode: resolvedPromoCode } : {}),
+        contact: { ...formData.contact, name: (formData.contact.fullName || '').trim(), phone: formatPhone(formData.contact.phone) },
+        ...(promoSourceCode ? { promoCode: promoSourceCode } : {}),
+        ...(resolvedPromoCode ? { couponCode: resolvedPromoCode } : {}),
         confirmationNumber
       };
-
-      console.log("🔍 [DIAGNOSTIC] Page: Initiating Booking Submission...");
-      console.log("🔍 [DIAGNOSTIC] Page: Payload:", JSON.stringify(payload, null, 2));
-
+      const payload = { ...payloadBase, couponDiscount: calculatePrice(payloadBase).couponDiscount };
       const response = await fetch(
         "https://promountbackend-914264443.development.catalystserverless.com/server/pro_mount_backend_function/create_fsm_order",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(payload)
-        }
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
       );
-
-      console.log(`🔍 [DIAGNOSTIC] Page: Response Status: ${response.status} ${response.statusText}`);
-
       const result = await response.json();
-
-      console.log("print resonse", result);
-      if (!response.ok) {
-        throw new Error(result?.message || "Request failed");
-      }
-
-      if (result?.checkoutUrl) {
-        console.log(" Stripe Checkout URL received:", result.checkoutUrl);
-        setStripeCheckoutUrl(result.checkoutUrl);
-      }
-      
-      // const rawText = await response.text();
-      // console.log(`🔍 [DIAGNOSTIC] Page: Raw Response:`, rawText);
-
-      // let result = null;
-      // try {
-      //   result = JSON.parse(rawText);
-      // } catch (e) {
-      //   console.warn(`🔍 [DIAGNOSTIC] Page: Failed to parse JSON`);
-      // }
-
-      // if (!response.ok) {
-      //   throw new Error(`HTTP ${response.status}: ${result?.message || result?.error || response.statusText || rawText}`);
-      // }
-
-      // if (result && !result.success) {
-      //   throw new Error(`Backend Error: ${result.message || 'Unknown error'}`);
-      // }
-
+      if (!response.ok) throw new Error(result?.message || "Request failed");
+      if (result?.checkoutUrl) setStripeCheckoutUrl(result.checkoutUrl);
+      if (typeof window !== 'undefined' && window.fbq) window.fbq('track', 'Lead');
       setFormData(payload);
       setIsSuccess(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      
-      toast({
-        variant: "default",
-        title: "Booking confirmed!",
-        description: "Your request has been processed successfully.",
+      const successFormData = {
+        ...payload,
+        confirmationNumber: result?.confirmationNumber || confirmationNumber,
+        stripeCheckoutUrl: result?.checkoutUrl
+      };
+      setFormData(successFormData);
+      navigate(withBookParam('/booking-confirmation', location.search), {
+        state: {
+          successData: {
+            formData: successFormData,
+            stripeCheckoutUrl: result?.checkoutUrl || null
+          }
+        }
       });
-      
-      // setTimeout(() => {
-      //   navigate('/');
-      // }, 3000);
+      toast({ variant: "default", title: "Booking confirmed!", description: "Your request has been processed successfully." });
+
+      // Mark lead as converted and stop future saves
+      bookingComplete.current = true;
+      clearTimeout(saveTimer.current);
+      await savePartialLead({ ...payload, promoCode: promoSourceCode }, true);
 
     } catch (error) {
-      console.error("🔍 [DIAGNOSTIC] Page: Caught Error:", error);
-
-      toast({
-        variant: "destructive",
-        title: "Booking Failed",
-        description: error.message || "An unknown error occurred while saving your booking."
-      });
-
+      toast({ variant: "destructive", title: "Booking Failed", description: error.message || "An unknown error occurred while saving your booking." });
     } finally {
       setIsSubmitting(false);
     }
@@ -276,6 +440,7 @@ const BookingPage = () => {
 
   const handleReset = () => {
     setIsSuccess(false);
+    setTvPath(null);
     setResolvedPromoCode('');
     setFormData({ ...INITIAL_FORM_DATA, terms: false, smsConsent: false });
     setErrors({});
@@ -283,18 +448,17 @@ const BookingPage = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const toggleMobileSummary = () => {
-    setShowMobileSummary(prev => !prev);
-  };
+  const livePrice = calculatePrice({ ...formData, promoCode: resolvedPromoCode, book: promoSourceCode });
+  const hasDiscount = livePrice.discount > 0;
+  const originalTotal = livePrice.estimatedTotal + livePrice.discount;
+  const showFullFlow = tvPath === 'single';
 
-  const goToBookingConfirmation = () => {
-    navigate(withBookParam('/booking-confirmation', location.search), {
-      state: {
-        formData,
-        step: 3
-      }
-    });
-  };
+  const isStep2Complete = !!(
+    formData.tvSize &&
+    formData.mountType &&
+    formData.wallType &&
+    formData.cableManagement
+  );
 
   return (
     <div className="min-h-screen bg-navy-950 flex flex-col">
@@ -302,73 +466,61 @@ const BookingPage = () => {
         <title>Book Your Installation - Pro Mount USA</title>
         <meta name="description" content="Book your professional TV mounting and installation service online instantly with Pro Mount USA." />
       </Helmet>
-
-      <style>{`
-        .fixed.bottom-6.right-6.z-\\[60\\] {
-          display: none !important;
-        }
-      `}</style>
+      <style>{`.fixed.bottom-6.right-6.z-\\[60\\] { display: none !important; }`}</style>
 
       <Header />
 
-      <main className="flex-grow pt-24 pb-32 lg:pb-16" ref={topRef}>
-        <div className="container mx-auto px-4 max-w-7xl">
-          
+      {/* Mobile Progress Bar — pinned just below header */}
+      {!isSuccess && showFullFlow && (
+        <div className="lg:hidden fixed top-16 left-0 right-0 z-30 bg-white border-b border-gray-100 shadow-sm px-4 py-2">
+          <ProgressIndicator formData={formData} />
+        </div>
+      )}
+
+      <main className="flex-grow pt-24 pb-20 lg:pb-16" ref={topRef}>
+        <div className="mx-auto px-4 w-full max-w-6xl">
+
+          {showFullFlow && <div className="lg:hidden h-10" />}
+
           {isSuccess ? (
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden p-6 md:p-12 mt-4">
               <SuccessState formData={formData} onClose={() => navigate('/')} onReset={handleReset} stripeCheckoutUrl={stripeCheckoutUrl} />
             </div>
           ) : (
-            <div className="flex flex-col lg:flex-row gap-8 relative items-start mt-4">
-              
+            <div className="flex flex-col lg:flex-row gap-6 relative items-start mt-4">
+
               <AnimatePresence>
                 {showMobileSummary && (
-                  <motion.div 
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
+                  <motion.div
+                    initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
                     transition={{ type: "spring", damping: 25, stiffness: 300 }}
                     className="fixed inset-0 z-50 bg-white lg:hidden flex flex-col"
                   >
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white shadow-sm mt-16">
-                        <h3 className="text-lg font-bold text-gray-900">Order Summary</h3>
-                        <button 
-                          onClick={() => setShowMobileSummary(false)}
-                          className="p-2 hover:bg-gray-100 rounded-full text-gray-500"
-                        >
-                          <X className="w-6 h-6" />
-                        </button>
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white shadow-sm sticky top-0 z-10">
+                      <h3 className="text-lg font-bold text-gray-900">Order Summary</h3>
+                      <button onClick={() => setShowMobileSummary(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
+                        <X className="w-6 h-6" />
+                      </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 pb-32">
-                        <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
+                      <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
                     </div>
                     <div className="p-4 border-t border-gray-200 bg-gray-50">
                       <button
-                        onClick={() => {
-                          setShowMobileSummary(false);
-                          goToBookingConfirmation();
-                        }}
+                        onClick={() => { setShowMobileSummary(false); handleSubmit(); }}
                         disabled={isSubmitting || !isFormValid}
-                        className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed group"
+                        className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-2 disabled:bg-orange-300 disabled:cursor-not-allowed disabled:shadow-none"
                       >
-                        {isSubmitting ? (
-                          <>
-                            <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...
-                          </>
-                        ) : (
-                          <>
-                            Book <Check className="w-5 h-5 ml-2 group-hover:scale-110 transition-transform" />
-                          </>
-                        )}
+                        {isSubmitting ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing...</> : <><Check className="w-5 h-5" /> Book Install</>}
                       </button>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <div className="flex-1 w-full flex flex-col gap-6">
-                
-                {/* Step 1 Section */}
+              <div className="flex-1 w-full lg:overflow-hidden flex flex-col gap-6">
+
+                {/* Step 1 */}
                 <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
                   <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
                     <h2 className="text-xl font-bold text-gray-900 flex items-center">
@@ -377,71 +529,90 @@ const BookingPage = () => {
                     </h2>
                   </div>
                   <div className="p-6 md:p-8">
-                    <Step1 formData={formData} updateFormData={updateFormData} errors={errors} />
+                    <Step1 onSelectPath={handleSelectPath} selectedPath={tvPath} onReset={() => { setTvPath(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
                   </div>
                 </div>
 
-                {/* Step 2 Section */}
-                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-                  <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                      <span className="bg-orange-100 text-orange-600 w-8 h-8 rounded-full flex items-center justify-center mr-3 font-bold text-sm">2</span>
-                      Installation Options
-                    </h2>
-                  </div>
-                  <div className="p-6 md:p-8">
-                    <Step2 formData={formData} updateFormData={updateFormData} errors={errors} />
-                  </div>
-                </div>
+                {showFullFlow && (
+                  <>
+                    {/* Step 2 */}
+                    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100" ref={step2Ref}>
+                      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                          <span className="bg-orange-100 text-orange-600 w-8 h-8 rounded-full flex items-center justify-center mr-3 font-bold text-sm">2</span>
+                          Installation Options
+                        </h2>
+                      </div>
+                      <div className="p-6 md:p-8">
+                        <Step2 formData={formData} updateFormData={updateFormData} errors={errors} />
+                      </div>
+                    </div>
 
-                {/* Step 3 Section */}
-                <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-                  <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-                    <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                      <span className="bg-orange-100 text-orange-600 w-8 h-8 rounded-full flex items-center justify-center mr-3 font-bold text-sm">3</span>
-                      Schedule & Contact
-                    </h2>
-                  </div>
-                  <div className="p-6 md:p-8">
-                    <Step3
-                      formData={formData}
-                      updateFormData={updateFormData}
-                      errors={errors}
-                      setErrors={setErrors}
-                      promoInput={promoInput}
-                      setPromoInput={setPromoInput}
-                      onApplyPromo={handleApplyPromo}
-                      promoApplyLoading={promoApplyLoading}
-                      appliedCouponCode={resolvedPromoCode}
-                    />
-                  </div>
-                </div>
+                    {/* Step 3 */}
+                    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100" ref={step3Ref}>
+                      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                        <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                          <span className="bg-orange-100 text-orange-600 w-8 h-8 rounded-full flex items-center justify-center mr-3 font-bold text-sm">3</span>
+                          Schedule & Contact
+                        </h2>
+                      </div>
+                      <div className="p-6 md:p-8">
+                        <div className="lg:hidden">
+                          <RecapCard
+                            formData={formData}
+                            onEditInstallation={() => scrollToRef(step2Ref)}
+                            onEditSchedule={() => scrollToRef(step3Ref)}
+                          />
+                        </div>
+                        <Step3
+                          formData={formData}
+                          updateFormData={updateFormData}
+                          errors={errors}
+                          setErrors={setErrors}
+                          promoInput={promoInput}
+                          setPromoInput={setPromoInput}
+                          onApplyPromo={handleApplyPromo}
+                          onClearPromo={handleClearPromo}
+                          promoApplyLoading={promoApplyLoading}
+                          appliedCouponCode={resolvedPromoCode}
+                          isStep2Complete={isStep2Complete}
+                        />
+                      </div>
+                    </div>
 
-                {/* Desktop Submit Button */}
-                <div className="hidden lg:flex justify-end mt-4">
-                  <button
-                    onClick={goToBookingConfirmation}
-                    disabled={isSubmitting || !isFormValid}
-                    className="px-12 py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed group"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="w-6 h-6 mr-3 animate-spin" /> Processing Booking...
-                      </>
-                    ) : (
-                      <>
-                        Book <Check className="w-6 h-6 ml-3 group-hover:scale-110 transition-transform" />
-                      </>
-                    )}
-                  </button>
-                </div>
-
+                    {/* Pay-after-install strip + Desktop Submit */}
+                    <div className="hidden lg:block">
+                      <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-3 mb-4 flex items-center gap-2">
+                        <Check className="w-4 h-4 text-green-600 shrink-0" />
+                        <p className="text-sm text-green-800 font-medium">
+                          No charge today — you pay after install. Saturday bookings require a $29 non-refundable deposit.
+                        </p>
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleSubmit}
+                          disabled={isSubmitting || !isFormValid}
+                          className="px-12 py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSubmitting ? <><Loader2 className="w-6 h-6 animate-spin" /> Processing Booking...</> : <><Check className="w-6 h-6" /> Book Install</>}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Desktop Sticky Summary */}
-              <div className="hidden lg:block w-[400px] shrink-0 sticky top-28 self-start transition-all duration-300">
-                <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
-              </div>
+              {showFullFlow && (
+                <div className="hidden lg:block w-[300px] shrink-0 sticky top-28 self-start transition-all duration-300">
+                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 pt-4 pb-3 mb-3">
+                    <ProgressIndicator formData={formData} />
+                  </div>
+                  <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+                    <PriceBreakdown formData={formData} promoCode={resolvedPromoCode} book={promoSourceCode} />
+                  </div>
+                </div>
+              )}
 
             </div>
           )}
@@ -449,34 +620,34 @@ const BookingPage = () => {
       </main>
 
       {/* Mobile Sticky Footer */}
-      {!isSuccess && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 z-40 flex flex-col gap-3 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.1)]">
-          <button 
-            onClick={toggleMobileSummary}
-            className="w-full flex justify-between items-center bg-gray-50 border border-gray-200 p-3.5 rounded-xl hover:bg-gray-100 transition-colors shadow-sm"
+      {!isSuccess && showFullFlow && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.1)]">
+          <button
+            onClick={() => setShowMobileSummary(prev => !prev)}
+            className="w-full flex justify-between items-center px-5 py-3 bg-gray-50 border-b border-gray-100 hover:bg-gray-100 transition-colors"
           >
             <span className="text-sm font-semibold text-gray-600">Estimated Total</span>
-            <span className="text-sm font-bold text-orange-600 flex items-center">
-                Tap to view summary
-                <ChevronUp className="w-4 h-4 ml-1.5" />
+            <span className="flex items-center gap-2">
+              {hasDiscount && (
+                <span className="text-sm line-through text-gray-400">${originalTotal.toFixed(2)}</span>
+              )}
+              <span className="text-lg font-black text-orange-600">${livePrice.estimatedTotal.toFixed(2)}</span>
+              <ChevronUp className="w-4 h-4 text-gray-400" />
             </span>
           </button>
-
-          <button
-            onClick={goToBookingConfirmation}
-            disabled={isSubmitting || !isFormValid}
-            className="w-full py-3.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...
-              </>
-            ) : (
-              <>
-                Book <Check className="w-5 h-5 ml-1" />
-              </>
-            )}
-          </button>
+          <div className="flex items-center justify-between gap-3 px-4 py-2 bg-green-50 border-y border-green-100">
+            <div className="flex items-center gap-2">
+              <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
+              <p className="text-xs text-green-800 font-medium">No charge today — you pay after install.</p>
+            </div>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !isFormValid}
+              className="shrink-0 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-orange-500/30 transition-all flex items-center gap-1.5 disabled:bg-orange-300 disabled:cursor-not-allowed disabled:shadow-none"
+            >
+              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : <><Check className="w-4 h-4" /> Book Install</>}
+            </button>
+          </div>
         </div>
       )}
 

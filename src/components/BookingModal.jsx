@@ -36,6 +36,7 @@ const BookingModal = ({ isOpen, onClose }) => {
   const [promoInput, setPromoInput] = useState('');
   const [promoApplyLoading, setPromoApplyLoading] = useState(false);
   const [promoSourceCode, setPromoSourceCode] = useState(bookPromoCode);
+  const [promoClearedManually, setPromoClearedManually] = useState(false);
   
   const scrollContainerRef = useRef(null);
 
@@ -57,10 +58,10 @@ const BookingModal = ({ isOpen, onClose }) => {
   }, [currentStep]);
 
   useEffect(() => {
-    if (!promoSourceCode && bookPromoCode) {
+    if (!promoClearedManually && !promoSourceCode && bookPromoCode) {
       setPromoSourceCode(bookPromoCode);
     }
-  }, [bookPromoCode, promoSourceCode]);
+  }, [bookPromoCode, promoSourceCode, promoClearedManually]);
 
   useEffect(() => {
     let isMounted = true;
@@ -100,6 +101,7 @@ const BookingModal = ({ isOpen, onClose }) => {
       if (!coupon || !isSupportedCouponCode(coupon)) {
         throw new Error('Coupon not valid');
       }
+      setPromoClearedManually(false);
       setPromoSourceCode(value);
       setResolvedPromoCode(coupon);
       toast({
@@ -116,6 +118,17 @@ const BookingModal = ({ isOpen, onClose }) => {
     } finally {
       setPromoApplyLoading(false);
     }
+  };
+
+  const handleClearPromo = () => {
+    setPromoClearedManually(true);
+    setPromoInput('');
+    setPromoSourceCode('');
+    setResolvedPromoCode('');
+    toast({
+      title: 'Coupon cleared',
+      description: 'Promo code has been removed from this booking.'
+    });
   };
 
   if (!isOpen) return null;
@@ -454,6 +467,7 @@ const BookingModal = ({ isOpen, onClose }) => {
                       promoInput={promoInput}
                       setPromoInput={setPromoInput}
                       onApplyPromo={handleApplyPromo}
+                      onClearPromo={handleClearPromo}
                       promoApplyLoading={promoApplyLoading}
                       appliedCouponCode={resolvedPromoCode}
                     />
